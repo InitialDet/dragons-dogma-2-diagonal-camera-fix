@@ -4,8 +4,9 @@ Fixes the slower diagonal camera movement when using a controller by hooking int
 
 ## Installation
 
-1. Install [REFramework](https://github.com/praydog/REFramework-nightly/releases)
-2. Use [FluffyQuack's Mod Manager](https://www.nexusmods.com/site/mods/818) (recommended) or extract the `.lua` inside `\Dragons Dogma 2\reframework\autorun`
+1. Download the mod [here](https://github.com/InitialDet/dragons-dogma-2-diagonal-camera-fix/releases)
+2. Install [REFramework](https://github.com/praydog/REFramework-nightly/releases)
+3. Use [FluffyQuack's Mod Manager](https://www.nexusmods.com/site/mods/818) (recommended) or extract the `.lua` inside `\Dragons Dogma 2\reframework\autorun`
 
 ## How It Works
 
