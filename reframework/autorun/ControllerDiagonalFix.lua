@@ -58,8 +58,7 @@ local function info_icon(tip)
 end
 
 -- Linear with magnitude-based dead zone (angle-preserving)
-local function apply_linear_dz(axis_val, other_val, dz)
-    local mag = math.sqrt(axis_val * axis_val + other_val * other_val)
+local function apply_linear_dz(axis_val, mag, dz)
     if mag <= dz then
         return 0
     end
@@ -68,8 +67,7 @@ local function apply_linear_dz(axis_val, other_val, dz)
 end
 
 -- Power curve on magnitude (angle-preserving), with dead zone
-local function apply_power_curve(axis_val, other_val, dz)
-    local mag = math.sqrt(axis_val * axis_val + other_val * other_val)
+local function apply_power_curve(axis_val, mag, dz)
     if mag <= dz then
         return 0
     end
@@ -77,6 +75,15 @@ local function apply_power_curve(axis_val, other_val, dz)
     local cm = (remapped ^ config.curve_power) / mag
     return axis_val * cm
 end
+
+-- Raw value of the second axis (Y) from the previous frame. The hook is called
+-- once per axis, so it needs this to build the magnitude of a frame.
+local cam_prev_y = 0
+
+-- Set by the pre-hook when a call cannot be remapped and must be left alone.
+-- Without it the post-hook would answer such a call with whatever value the
+-- previous call happened to leave behind.
+local passthrough = false
 
 local td = sdk.find_type_definition("app.RotateCameraControllerBase")
 local method = td and td:get_method("getInputRotationSpeedRate")
@@ -87,8 +94,11 @@ end
 sdk.hook(method, function(args)
     local raw = sdk.to_float(args[3]) or 0
 
+    passthrough = false
+
     local cam = sdk.to_managed_object(args[2])
     if not cam then
+        passthrough = true
         return sdk.PreHookResult.CALL_ORIGINAL
     end
 
@@ -101,7 +111,10 @@ sdk.hook(method, function(args)
     end
 
     if is_mouse then
+        -- Mouse aiming never goes through the stick curve, so the game's own
+        -- value is handed back untouched (linear_out only feeds the recording).
         linear_out = raw
+        passthrough = true
         return sdk.PreHookResult.CALL_ORIGINAL
     end
 
@@ -119,23 +132,29 @@ sdk.hook(method, function(args)
     local cs = cam_state[ptr]
     cs.call = cs.call + 1
 
+    -- Only the second call of a frame sees both axis values, so the first call
+    -- pairs its own value with the other axis of the previous frame. Both calls
+    -- must then use that one magnitude: giving each axis a magnitude of its own
+    -- scales the two axes differently and bends the direction of the movement.
     if cs.call == 1 then
         cs.x = raw
+        cs.mag = math.sqrt(cs.x * cs.x + cam_prev_y * cam_prev_y)
     elseif cs.call == 2 then
         cs.y = raw
         if ptr == main_cam then
             cal_frame_mag = math.sqrt(cs.x * cs.x + cs.y * cs.y)
         end
+    else
+        cs.mag = math.sqrt(raw * raw + cs.x * cs.x)
     end
 
     if config.enabled then
-        local other = (cs.call == 1) and cam_prev_y or cs.x
         local dz = effective_dz()
 
         if config.mode == 0 then
-            linear_out = apply_linear_dz(raw, other, dz)
+            linear_out = apply_linear_dz(raw, cs.mag, dz)
         else
-            linear_out = apply_power_curve(raw, other, dz)
+            linear_out = apply_power_curve(raw, cs.mag, dz)
         end
 
         if ptr == main_cam then
@@ -176,13 +195,11 @@ end, function(retval)
         cal_frame_moving = true
     end
 
-    if config.enabled then
+    if config.enabled and not passthrough then
         return sdk.float_to_ptr(linear_out)
     end
     return retval
 end)
-
-local cam_prev_y = 0
 
 re.on_frame(function()
     if auto_cal and cal_frame_moving and cal_frame_mag > 0 then
